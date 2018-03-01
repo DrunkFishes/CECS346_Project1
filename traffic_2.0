@@ -1,0 +1,168 @@
+// ***** 0. Documentation Section *****
+// Lab3.c for Lab 10
+// Runs on LM4F120/TM4C123
+// Index implementation of a Moore finite state machine to operate a traffic light.  
+// Daniel Valvano, Jonathan Valvano
+// January 15, 2016
+
+// east/west red light connected to PB5
+// east/west yellow light connected to PB4
+// east/west green light connected to PB3
+// north/south facing red light connected to PB2
+// north/south facing yellow light connected to PB1
+// north/south facing green light connected to PB0
+// pedestrian detector connected to PE2 (1=pedestrian present)
+// north/south car detector connected to PE1 (1=car present)
+// east/west car detector connected to PE0 (1=car present)
+// "walk" light connected to PF3 (built-in green LED)
+// "don't walk" light connected to PF1 (built-in red LED)
+
+// ***** 1. Pre-processor Directives Section *****
+//#include "TExaS.h"
+#include "tm4c123gh6pm.h"
+#include "SysTick.h"
+
+// ***** 2. Global Declarations Section *****
+
+// FUNCTION PROTOTYPES: Each subroutine defined
+//void DisableInterrupts(void); // Disable interrupts
+//void EnableInterrupts(void);  // Enable interrupts
+void Init_PortB();
+void Init_PortE();
+void Delay();
+void SysTick_half(unsigned long delay);
+
+// NEW DEFINES FOR THE TRAFFIC LIGHT
+#define LIGHT (*((volatile unsigned long *)0x400053FC))
+#define SENSOR (*((volatile unsigned long *)0x4002401C))
+	
+// Linked data structure
+struct State {
+  unsigned long Out; 
+	unsigned long P_out;
+  unsigned long Time;  
+  unsigned long Next[9];}; 
+
+typedef const struct State STyp;
+#define goN  			0
+#define waitN			1
+#define goE    		2
+#define waitE 		3
+#define goP		    4
+#define waitPon1  5
+#define waitPoff1 6
+#define waitPon2  7
+#define waitPoff2 8
+	
+STyp FSM[9]={					// N, E, P
+								 //     000        001         010       011        100        101        110        111
+ {0x21,0x02, 600,{      goN,     waitN,     waitN,     waitN,       goN,     waitN,     waitN,     waitN}}, 
+ {0x22,0x02, 200,{      goE,       goP,       goE,       goP,       goN,       goP,       goE,       goE}}, 
+ {0x0C,0x02, 600,{      goE,     waitE,       goE,     waitE,     waitE,     waitE,     waitE,     waitE}},//not jumping to this
+ {0x14,0x02, 200,{      goN,       goP,       goE,       goP,       goN,       goP,       goN,       goN}},// or this
+ {0x3F,0x08, 600,{      goP,       goP,  waitPon1,  waitPon1,  waitPon1,  waitPon1,  waitPon1,  waitPon1}}, // jumps to this
+ {0x24,0x08,  50,{waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1}},
+ {0x24,0x02,  50,{ waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2}},
+ {0x24,0x08,  50,{waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2}},
+ {0x14,0x02,  50,{      goN,       goE,       goN,       goE,       goN,       goE,       goN,      goE}}};
+
+ 
+unsigned long S;  // index to the current state 
+unsigned long Input; 
+
+// ***** 3. Subroutines Section ****
+int main(void){ 
+	unsigned int In, Blink, y;
+  //TExaS_Init(SW_PIN_PE210, LED_PIN_PB543210,ScopeOff); // activate grader and set system clock to 80 MH
+	
+  Init_PortB();
+  Init_PortE();
+	SysTick_Init();
+	
+	// turn on red led
+	//GPIO_PORTB_DATA_R |=  0x04;
+	//GPIO_PORTB_DATA_R &= ~0x03;
+	
+	//another way to do multiple bits setup
+	//GPIO_PORTB_DATA_R &= ~0x07;
+	//GPIO_PORTB_DATA_R &=  0x04;
+	
+  //EnableInterrupts();
+	
+//  while(1){
+//		//Delay();
+//			SysTick_half(1);
+//  	// assume use bit 1 on portE for switch 2
+//		 Blink = GPIO_PORTE_DATA_R & 0x02; //read PF4 into In
+//		 if (Blink == 0x02){              // zero means SW1 is pressed
+//			 y = GPIO_PORTB_DATA_R;
+//			 GPIO_PORTB_DATA_R = GPIO_PORTB_DATA_R ^ GPIO_PORTB_DATA_R; 
+//			 //Delay();
+//			 SysTick_half(1);
+//			 GPIO_PORTB_DATA_R = y;
+//		 }
+//		// assume use bit 0 on portE for switch 1
+//		In = GPIO_PORTE_DATA_R & 0x01; //read PF4 into In
+//		 if(In == 0x01){              // zero means SW1 is pressed
+//			GPIO_PORTB_DATA_R >>= 0x01; // changes to yellow then green
+//			 
+//			 if (GPIO_PORTB_DATA_R == 0x00){
+//				 GPIO_PORTB_DATA_R = 0x04;
+//			 }
+//		 }
+//	}
+	
+	 while(1){
+    LIGHT = FSM[S].Out;  // set lights
+    SysTick_Wait10ms(FSM[S].Time);
+    Input = SENSOR;     // read sensors
+    S = FSM[S].Next[Input];  
+  }
+}
+void Init_PortB(void){ // needs 3 more outputs
+	unsigned int delay;
+  SYSCTL_RCGC2_R |= 0x00000002;     // 1) B clock
+  delay = SYSCTL_RCGC2_R;           // delay   
+  GPIO_PORTB_CR_R = 0x3F;           // allow changes to PB5-0      
+  GPIO_PORTB_AMSEL_R = 0x00;        // 3) disable analog function
+  GPIO_PORTB_PCTL_R = 0x00000000;   // 4) GPIO clear bit PCTL  
+  GPIO_PORTB_DIR_R = 0x3F;          // 5) PB5-PB0 output 
+  GPIO_PORTB_AFSEL_R = 0x00;        // 6) no alternate function
+  GPIO_PORTB_PUR_R = 0x00;          // enable pullup resistors on PF4,PF0       
+  GPIO_PORTB_DEN_R = 0x3F;          // 7) enable digital pins P5-PB0   
+																		//0011.1111
+}
+void Init_PortE(void){ // needs 1 more inputs
+	unsigned int delay;
+  SYSCTL_RCGC2_R |= 0x00000010;     // 1) E clock
+  delay = SYSCTL_RCGC2_R;           // delay   
+  GPIO_PORTE_CR_R = 0x07;           // allow changes to PE2-PE0       
+  GPIO_PORTE_AMSEL_R = 0x00;        // 3) disable analog function
+  GPIO_PORTE_PCTL_R = 0x00000000;   // 4) GPIO clear bit PCTL  
+  GPIO_PORTE_DIR_R = 0xF8;          // 5) PE2-PE0  input 
+  GPIO_PORTE_AFSEL_R = 0x00;        // 6) no alternate function   
+  GPIO_PORTE_DEN_R = 0x07;          // 7) enable digital pins PE2-PE0  
+																		// 0000.0111 1000
+}
+
+// initialize Port F
+void PortF_Init(void){
+	volatile unsigned long delay;
+  SYSCTL_RCGC2_R |= 0x00000020;     // 1) F clock
+  delay = SYSCTL_RCGC2_R;           // delay   
+  GPIO_PORTF_LOCK_R = 0x4C4F434B;   // 2) unlock PortF PF0  
+  GPIO_PORTF_CR_R = 0x1F;           // allow changes to PF4-0       
+  GPIO_PORTF_AMSEL_R = 0x00;        // 3) disable analog function
+  GPIO_PORTF_PCTL_R = 0x00000000;   // 4) GPIO clear bit PCTL  
+  GPIO_PORTF_DIR_R = 0x0E;          // 5) PF4,PF0 input, PF3,PF2,PF1 output   
+  GPIO_PORTF_AFSEL_R = 0x00;        // 6) no alternate function
+  GPIO_PORTF_PUR_R = 0x11;          // enable pullup resistors on PF4,PF0       
+  GPIO_PORTF_DEN_R = 0x1F;          // 7) enable digital pins PF4-PF0  
+}
+
+void Delay(void){unsigned long volatile time;
+	time = (727240*200/91);
+  while(time){
+		time--;
+  }
+}
