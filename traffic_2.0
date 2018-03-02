@@ -45,6 +45,7 @@ struct State {
   unsigned long Time;  
   unsigned long Next[9];}; 
 
+// define the state names
 typedef const struct State STyp;
 #define goN  			0
 #define waitN			1
@@ -60,17 +61,19 @@ typedef const struct State STyp;
 // E - PE-1
 // P - PE-0
 	
+// Moore state machine with outputs to the traffic light and the pedistrians lights
+// time is called from the systic timer for 10ms
 STyp FSM[9]={					// N, E, P
 								 //     000        001         010       011        100        101        110        111
- {0x21,0x02, 600,{      goN,     waitN,     waitN,     waitN,       goN,     waitN,     waitN,     waitN}}, 
- {0x22,0x02, 200,{      goE,       goP,       goE,       goP,       goN,       goP,       goE,       goE}}, 
- {0x0C,0x02, 600,{      goE,     waitE,       goE,     waitE,     waitE,     waitE,     waitE,     waitE}},
- {0x14,0x02, 200,{      goN,       goP,       goE,       goP,       goN,       goP,       goN,       goP}},
- {0x24,0x08, 600,{      goP,       goP,  waitPon1,  waitPon1,  waitPon1,  waitPon1,  waitPon1,  waitPon1}}, 
- {0x24,0x02,  50,{waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1}},
- {0x24,0x00,  50,{ waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2}},
- {0x24,0x02,  50,{waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2}},
- {0x24,0x00,  50,{      goN,       goE,       goE,       goE,       goN,       goN,       goN,      goE}}};
+ {0x21,0x02, 600,{      goN,     waitN,     waitN,     waitN,       goN,     waitN,     waitN,     waitN}}, //goN
+ {0x22,0x02, 200,{      goE,       goP,       goE,       goP,       goN,       goP,       goE,       goE}}, //waitN
+ {0x0C,0x02, 600,{      goE,     waitE,       goE,     waitE,     waitE,     waitE,     waitE,     waitE}}, //goE
+ {0x14,0x02, 200,{      goN,       goP,       goE,       goP,       goN,       goP,       goN,       goP}}, //waitE
+ {0x24,0x08, 600,{      goP,       goP,  waitPon1,  waitPon1,  waitPon1,  waitPon1,  waitPon1,  waitPon1}}, //goP
+ {0x24,0x02,  50,{waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1, waitPoff1}}, //waitPon1
+ {0x24,0x00,  50,{ waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2,  waitPon2}}, //waitPoff1
+ {0x24,0x02,  50,{waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2, waitPoff2}}, //waitPon2
+ {0x24,0x00,  50,{      goN,       goE,       goE,       goE,       goN,       goN,       goN,      goN}}}; //waitPoff2
 
  
 unsigned long S;  // index to the current state 
@@ -78,48 +81,14 @@ unsigned long Input;
 
 // ***** 3. Subroutines Section ****
 int main(void){ 
-	unsigned int In, Blink, y;
   //TExaS_Init(SW_PIN_PE210, LED_PIN_PB543210,ScopeOff); // activate grader and set system clock to 80 MH
 	
-
   Init_PortB();
   Init_PortE();
 	PortF_Init();
-	
 	SysTick_Init();
 	
-	// turn on red led
-	//GPIO_PORTB_DATA_R |=  0x04;
-	//GPIO_PORTB_DATA_R &= ~0x03;
-	
-	//another way to do multiple bits setup
-	//GPIO_PORTB_DATA_R &= ~0x07;
-	//GPIO_PORTB_DATA_R &=  0x04;
-	
   //EnableInterrupts();
-	
-//  while(1){
-//		//Delay();
-//			SysTick_half(1);
-//  	// assume use bit 1 on portE for switch 2
-//		 Blink = GPIO_PORTE_DATA_R & 0x02; //read PF4 into In
-//		 if (Blink == 0x02){              // zero means SW1 is pressed
-//			 y = GPIO_PORTB_DATA_R;
-//			 GPIO_PORTB_DATA_R = GPIO_PORTB_DATA_R ^ GPIO_PORTB_DATA_R; 
-//			 //Delay();
-//			 SysTick_half(1);
-//			 GPIO_PORTB_DATA_R = y;
-//		 }
-//		// assume use bit 0 on portE for switch 1
-//		In = GPIO_PORTE_DATA_R & 0x01; //read PF4 into In
-//		 if(In == 0x01){              // zero means SW1 is pressed
-//			GPIO_PORTB_DATA_R >>= 0x01; // changes to yellow then green
-//			 
-//			 if (GPIO_PORTB_DATA_R == 0x00){
-//				 GPIO_PORTB_DATA_R = 0x04;
-//			 }
-//		 }
-//	}
 	
 	 while(1){
     LIGHT = FSM[S].Out;  // set lights
@@ -166,7 +135,6 @@ void PortF_Init(void){
   GPIO_PORTF_PCTL_R = 0x00000000;   // 4) GPIO clear bit PCTL  
   GPIO_PORTF_DIR_R = 0x0E;          // 5) PF3,PF2,PF1 output   
   GPIO_PORTF_AFSEL_R = 0x00;        // 6) no alternate function
-  //GPIO_PORTF_PUR_R = 0x11;          // enable pullup resistors on PF4,PF0       
   GPIO_PORTF_DEN_R = 0x0E;          // 7) enable digital pins PF3-PF1      0000.1110  
 }
 
